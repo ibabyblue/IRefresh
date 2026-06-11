@@ -18,6 +18,9 @@ final class _FooterEngine {
     var isBlocked = false
     private(set) var phase: IRefreshContext.Phase = .idle
     private(set) var pulledDistance: CGFloat = 0
+    /// Last reported viewport-fill state; the container hides the pull-mode
+    /// footer overlay while the content is shorter than the viewport.
+    private(set) var contentFillsViewport = false
     /// Auto mode: prevents machine-gun triggering while sitting in the zone.
     private var isArmed = true
 
@@ -33,6 +36,7 @@ final class _FooterEngine {
     var isBusy: Bool { phase == .refreshing || phase == .finishing }
 
     func handleGeometry(bottomDistance: CGFloat, contentFillsViewport: Bool) {
+        self.contentFillsViewport = contentFillsViewport
         switch config.mode {
         case .auto(let prefetchDistance):
             handleAuto(bottomDistance: bottomDistance, prefetch: prefetchDistance, contentFillsViewport: contentFillsViewport)
@@ -90,6 +94,7 @@ final class _FooterEngine {
         phase = .idle
         pulledDistance = 0
         isArmed = true
+        contentFillsViewport = false
     }
 
     private func handleAuto(bottomDistance: CGFloat, prefetch: CGFloat, contentFillsViewport: Bool) {

@@ -167,6 +167,18 @@ struct FooterEngineTests {
         #expect(engine.phase == .refreshing)
     }
 
+    @Test func exposesContentFillsViewport() {
+        let engine = makePull(releaseDetection: false)
+        #expect(engine.contentFillsViewport == false)
+        engine.handleGeometry(bottomDistance: 100, contentFillsViewport: true)
+        #expect(engine.contentFillsViewport == true)
+        engine.handleGeometry(bottomDistance: 100, contentFillsViewport: false)
+        #expect(engine.contentFillsViewport == false)
+        engine.handleGeometry(bottomDistance: 100, contentFillsViewport: true)
+        engine.reset()
+        #expect(engine.contentFillsViewport == false)
+    }
+
     @Test func resetReturnsToIdleAndRearms() {
         let engine = makeAuto(prefetch: 100)
         engine.handleGeometry(bottomDistance: 80, contentFillsViewport: true)

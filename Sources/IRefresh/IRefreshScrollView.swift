@@ -1,5 +1,13 @@
 import SwiftUI
 
+/// Reference-typed cache of the latest scroll metrics, so a viewport-only
+/// resize (which doesn't fire `onPreferenceChange`) can still re-drive the
+/// engines with up-to-date geometry.
+@MainActor
+final class _MetricsCache {
+    var latest = _ScrollMetrics()
+}
+
 /// A `ScrollView`-based container with MJRefresh-style pull-to-refresh and
 /// load-more. Host any SwiftUI content (LazyVStack, Grid, …) and chain the
 /// builder modifiers:
@@ -24,6 +32,7 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
 
     @State private var headerEngine = _HeaderEngine()
     @State private var footerEngine = _FooterEngine()
+    @State private var metricsCache = _MetricsCache()
     @State private var refreshTask: Task<Void, Never>?
     @State private var loadTask: Task<Void, Never>?
 
@@ -84,39 +93,33 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                 footerEngine.handleInteraction(interacting)
             })
             .onPreferenceChange(_ScrollMetricsKey.self) { [
-                headerEngine, footerEngine,
+                headerEngine, footerEngine, metricsCache,
                 headerTriggerDistance, footerTriggerDistance, footerMode,
                 hasRefresh = onRefreshAction != nil,
                 hasLoadMore = onLoadMoreAction != nil
             ] metrics in
                 MainActor.assumeIsolated {
-                    if hasRefresh {
-                        let config = _HeaderEngine.Config(
-                            triggerDistance: headerTriggerDistance,
-                            supportsReleaseDetection: _supportsReleaseDetection
-                        )
-                        if headerEngine.config != config { headerEngine.config = config }
-                        headerEngine.handleOffset(metrics.top)
-                    }
-                    if hasLoadMore {
-                        let config = _FooterEngine.Config(
-                            mode: footerMode,
-                            triggerDistance: footerTriggerDistance,
-                            supportsReleaseDetection: _supportsReleaseDetection
-                        )
-                        if footerEngine.config != config {
-                            if footerEngine.config.mode != config.mode { footerEngine.reset() }
-                            footerEngine.config = config
-                        }
-                        let contentHeight = metrics.bottom - metrics.top
-                        footerEngine.handleGeometry(
-                            bottomDistance: metrics.bottom - viewportHeight,
-                            contentFillsViewport: contentHeight >= viewportHeight
-                        )
-                    }
+                    metricsCache.latest = metrics
+                    Self.drive(
+                        metrics: metrics, viewportHeight: viewportHeight,
+                        headerEngine: headerEngine, footerEngine: footerEngine,
+                        headerTriggerDistance: headerTriggerDistance,
+                        footerTriggerDistance: footerTriggerDistance,
+                        footerMode: footerMode, hasRefresh: hasRefresh, hasLoadMore: hasLoadMore
+                    )
                 }
             }
             .transformPreference(_ScrollMetricsKey.self) { $0 = _ScrollMetrics() }
+            .onChange(of: viewportHeight) { _, newHeight in
+                Self.drive(
+                    metrics: metricsCache.latest, viewportHeight: newHeight,
+                    headerEngine: headerEngine, footerEngine: footerEngine,
+                    headerTriggerDistance: headerTriggerDistance,
+                    footerTriggerDistance: footerTriggerDistance,
+                    footerMode: footerMode,
+                    hasRefresh: onRefreshAction != nil, hasLoadMore: onLoadMoreAction != nil
+                )
+            }
             .onChange(of: headerEngine.phase) { old, new in
                 headerPhaseChanged(from: old, to: new)
             }
@@ -142,11 +145,50 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
 
     @ViewBuilder
     private var pullFooterOverlay: some View {
-        if onLoadMoreAction != nil, case .pull = footerMode {
+        if onLoadMoreAction != nil, case .pull = footerMode, footerEngine.contentFillsViewport {
             footerBuilder(footerEngine.context)
                 .frame(maxWidth: .infinity)
                 .frame(height: footerTriggerDistance)
                 .offset(y: footerTriggerDistance)
+        }
+    }
+
+    /// Pushes the latest geometry into both engines. Static so the `@Sendable`
+    /// `onPreferenceChange` closure can call it without capturing `self`.
+    private static func drive(
+        metrics: _ScrollMetrics,
+        viewportHeight: CGFloat,
+        headerEngine: _HeaderEngine,
+        footerEngine: _FooterEngine,
+        headerTriggerDistance: CGFloat,
+        footerTriggerDistance: CGFloat,
+        footerMode: IRefreshFooterMode,
+        hasRefresh: Bool,
+        hasLoadMore: Bool
+    ) {
+        if hasRefresh {
+            let config = _HeaderEngine.Config(
+                triggerDistance: headerTriggerDistance,
+                supportsReleaseDetection: _supportsReleaseDetection
+            )
+            if headerEngine.config != config { headerEngine.config = config }
+            headerEngine.handleOffset(metrics.top)
+        }
+        if hasLoadMore {
+            let config = _FooterEngine.Config(
+                mode: footerMode,
+                triggerDistance: footerTriggerDistance,
+                supportsReleaseDetection: _supportsReleaseDetection
+            )
+            if footerEngine.config != config {
+                if footerEngine.config.mode != config.mode { footerEngine.reset() }
+                footerEngine.config = config
+            }
+            let contentHeight = metrics.bottom - metrics.top
+            footerEngine.handleGeometry(
+                bottomDistance: metrics.bottom - viewportHeight,
+                contentFillsViewport: viewportHeight > 0 && contentHeight >= viewportHeight
+            )
         }
     }
 
