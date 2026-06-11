@@ -17,31 +17,37 @@ struct ContentView: View {
     }
 }
 
+struct DemoItem: Identifiable {
+    let id = UUID()
+    let number: Int
+}
+
 @MainActor @Observable
 final class DemoFeedModel {
-    private(set) var items: [Int] = Array(1...20)
+    private(set) var items: [DemoItem] = (1...20).map(DemoItem.init(number:))
     var pageLimit = 60
 
     func refresh() async {
         try? await Task.sleep(for: .seconds(1.5))
-        items = Array(1...20)
+        // Shuffled so a successful refresh visibly reorders the rows.
+        items = (1...20).map(DemoItem.init(number:)).shuffled()
     }
 
     func loadMore() async -> IRefreshLoadResult {
         try? await Task.sleep(for: .seconds(1))
         let next = items.count + 1
-        items.append(contentsOf: next..<(next + 15))
+        items.append(contentsOf: (next..<(next + 15)).map(DemoItem.init(number:)))
         return items.count >= pageLimit ? .noMoreData : .hasMore
     }
 }
 
 struct DemoFeed: View {
-    let items: [Int]
+    let items: [DemoItem]
 
     var body: some View {
         LazyVStack(spacing: 0) {
-            ForEach(items, id: \.self) { index in
-                DemoRow(index: index)
+            ForEach(items) { item in
+                DemoRow(index: item.number)
             }
         }
     }
