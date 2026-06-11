@@ -282,6 +282,7 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
         controller._resetNoMoreData = { [weak footerEngine] in
             footerEngine?.resetNoMoreData()
         }
+        controller._drainPendingIntents()
     }
 
     private func tearDown() {
