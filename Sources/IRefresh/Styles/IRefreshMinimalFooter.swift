@@ -7,8 +7,10 @@ struct IRefreshMinimalFooter: View {
     var body: some View {
         ZStack {
             switch context.phase {
-            case .refreshing, .finishing:
+            case .refreshing:
                 ProgressView()
+            case .finishing:
+                Color.clear
             case .noMoreData:
                 Text(texts.noMoreData)
                     .font(.caption2)

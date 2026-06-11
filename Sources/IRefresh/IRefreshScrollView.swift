@@ -69,7 +69,6 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                 VStack(spacing: 0) {
                     Color.clear
                         .frame(height: headerHoldHeight)
-                        .animation(.easeInOut(duration: 0.25), value: headerHoldHeight)
 
                     content
                         .overlay(alignment: .top) { headerOverlay }
@@ -82,7 +81,6 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
 
                     Color.clear
                         .frame(height: footerHoldHeight)
-                        .animation(.easeInOut(duration: 0.25), value: footerHoldHeight)
                 }
                 .background {
                     // iOS 17 only: the GeometryReader preference probe is the
@@ -222,12 +220,18 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
     }
 
     private var headerHoldHeight: CGFloat {
-        headerEngine.phase == .refreshing ? headerTriggerDistance : 0
+        switch headerEngine.phase {
+        case .refreshing, .finishing: headerTriggerDistance
+        default: 0
+        }
     }
 
     private var footerHoldHeight: CGFloat {
         guard case .pull = footerMode else { return 0 }
-        return footerEngine.phase == .refreshing ? footerTriggerDistance : 0
+        switch footerEngine.phase {
+        case .refreshing, .finishing: return footerTriggerDistance
+        default: return 0
+        }
     }
 
     // MARK: - Phase reactions
@@ -246,11 +250,15 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
         refreshTask = Task { [headerEngine, footerEngine] in
             await action?()
             guard !Task.isCancelled else { return }
-            headerEngine.finish()
+            withAnimation(.easeOut(duration: 0.2)) {
+                headerEngine.finish() // spinner fades (styles hide content in .finishing)
+            }
             footerEngine.resetNoMoreData()
-            try? await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            headerEngine.didCollapse()
+            withAnimation(.easeInOut(duration: 0.3)) {
+                headerEngine.didCollapse() // hold collapse + overlay opacity → 0, animated
+            }
         }
     }
 
@@ -268,11 +276,15 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
         loadTask = Task { [footerEngine] in
             let result = await action?() ?? .hasMore
             guard !Task.isCancelled else { return }
-            footerEngine.finish(result)
+            withAnimation(.easeOut(duration: 0.2)) {
+                footerEngine.finish(result) // also animates the noMoreData hold-collapse in pull mode
+            }
             if footerEngine.phase == .finishing {
-                try? await Task.sleep(for: .milliseconds(300))
+                try? await Task.sleep(for: .milliseconds(250))
                 guard !Task.isCancelled else { return }
-                footerEngine.didCollapse()
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    footerEngine.didCollapse()
+                }
             }
         }
     }
