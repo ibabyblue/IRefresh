@@ -90,6 +90,32 @@ struct HeaderEngineTests {
         #expect(engine.phase == .idle)
     }
 
+    @Test func blockingMidPullPreventsThresholdTrigger() {
+        let engine = makeEngine(releaseDetection: false)
+        engine.handleOffset(30)
+        #expect(engine.phase == .pulling)
+        engine.isBlocked = true
+        engine.handleOffset(70)
+        #expect(engine.phase != .refreshing)
+    }
+
+    @Test func blockingMidPullPreventsReleaseTrigger() {
+        let engine = makeEngine(releaseDetection: true)
+        engine.handleOffset(70)
+        #expect(engine.phase == .willRefresh)
+        engine.isBlocked = true
+        engine.handleInteraction(false)
+        #expect(engine.phase != .refreshing)
+    }
+
+    @Test func blockedIdleEngineDoesNotReportProgress() {
+        let engine = makeEngine(releaseDetection: false)
+        engine.isBlocked = true
+        engine.handleOffset(100)
+        #expect(engine.pulledDistance == 0)
+        #expect(engine.progress == 0)
+    }
+
     @Test func resetReturnsToIdle() {
         let engine = makeEngine(releaseDetection: false)
         engine.handleOffset(60)

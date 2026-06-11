@@ -31,8 +31,9 @@ final class _HeaderEngine {
     func handleOffset(_ pulled: CGFloat) {
         switch phase {
         case .idle:
+            guard !isBlocked else { return }
             pulledDistance = max(0, pulled)
-            guard !isBlocked, pulledDistance > 0 else { return }
+            guard pulledDistance > 0 else { return }
             phase = .pulling
             evaluateThreshold()
         case .pulling:
@@ -55,20 +56,26 @@ final class _HeaderEngine {
     /// iOS 18+ only: scroll phase transitions. Release while at/over the
     /// threshold triggers the refresh.
     func handleInteraction(_ isInteracting: Bool) {
-        if !isInteracting, phase == .willRefresh {
+        if !isInteracting, phase == .willRefresh, !isBlocked {
             phase = .refreshing
         }
     }
 
+    /// Programmatic trigger. Effective only from `.idle` while not blocked;
+    /// otherwise a silent no-op (an in-flight user gesture wins).
     func beginRefreshing() {
         guard phase == .idle, !isBlocked else { return }
         phase = .refreshing
     }
 
+    /// Call when the refresh action returns. Must be followed by `didCollapse()`
+    /// once the collapse animation ends, or the engine stays frozen in
+    /// `.finishing` (escape hatch: `reset()`).
     func finish() {
         if phase == .refreshing { phase = .finishing }
     }
 
+    /// Completes the `finish()` → collapse handshake, returning to `.idle`.
     func didCollapse() {
         if phase == .finishing {
             phase = .idle
@@ -82,7 +89,7 @@ final class _HeaderEngine {
     }
 
     private func evaluateThreshold() {
-        guard pulledDistance >= config.triggerDistance else { return }
+        guard pulledDistance >= config.triggerDistance, !isBlocked else { return }
         phase = config.supportsReleaseDetection ? .willRefresh : .refreshing
     }
 }
