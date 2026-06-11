@@ -73,7 +73,7 @@ struct FeedView: View {
 }
 ```
 
-That's it — classic header and footer included. Omit `.onRefresh`/`.onLoadMore` to disable either direction.
+That's it — classic header and footer included. Omit `.onRefresh`/`.onLoadMore` to disable either direction. Load-more defaults to `.auto(prefetchDistance: 0)` — it fires when the list is scrolled to the bottom.
 
 ## Customization
 
@@ -82,10 +82,12 @@ That's it — classic header and footer included. Omit `.onRefresh`/`.onLoadMore
 ```swift
 .refreshHeader(.classic)                              // arrow + spinner + text
 .refreshHeader(.classic(lastUpdatedKey: "feed"))      // + persisted "last updated" line
-.refreshHeader(.minimal, triggerDistance: 70)         // progress ring, custom height
+.refreshHeader(.minimal, triggerDistance: 70)         // progress ring, custom trigger distance
 .refreshFooter(.classic)
 .refreshFooter(.minimal)
 ```
+
+The default trigger distance is 60pt for headers and 50pt for footers; built-in and custom headers are laid out at exactly the trigger distance in height.
 
 ### Custom header (e.g. Lottie)
 
@@ -152,4 +154,4 @@ English and Simplified Chinese ship by default and follow the system language. O
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+IRefresh is available under the MIT license. See the [LICENSE](LICENSE) file for details.
