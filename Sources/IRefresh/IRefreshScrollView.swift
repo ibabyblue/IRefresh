@@ -159,6 +159,9 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                 .frame(maxWidth: .infinity)
                 .frame(height: headerTriggerDistance)
                 .offset(y: -headerTriggerDistance)
+                // Invisible at rest — otherwise the text shows through the
+                // translucent inline navigation bar.
+                .opacity(headerEngine.phase == .idle ? 0 : 1)
         }
     }
 
@@ -169,6 +172,8 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                 .frame(maxWidth: .infinity)
                 .frame(height: footerTriggerDistance)
                 .offset(y: footerTriggerDistance)
+                // Invisible at rest, matching the header overlay.
+                .opacity(footerEngine.phase == .idle ? 0 : 1)
         }
     }
 
