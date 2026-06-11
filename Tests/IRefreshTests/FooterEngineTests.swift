@@ -121,6 +121,52 @@ struct FooterEngineTests {
         #expect(engine.phase != .refreshing)
     }
 
+    @Test func pullBlockedWillRefreshReleaseDoesNotTrigger() {
+        let engine = makePull(releaseDetection: true)
+        engine.handleGeometry(bottomDistance: -60, contentFillsViewport: true)
+        #expect(engine.phase == .willRefresh)
+        engine.isBlocked = true
+        engine.handleInteraction(false)
+        #expect(engine.phase != .refreshing)
+    }
+
+    @Test func pullResetsToIdleWhenContentStopsFillingViewport() {
+        let engine = makePull(releaseDetection: true)
+        engine.handleGeometry(bottomDistance: -60, contentFillsViewport: true)
+        #expect(engine.phase == .willRefresh)
+        engine.handleGeometry(bottomDistance: -60, contentFillsViewport: false)
+        #expect(engine.phase == .idle)
+        #expect(engine.pulledDistance == 0)
+        engine.handleInteraction(false) // release after shrink must not trigger
+        #expect(engine.phase == .idle)
+    }
+
+    @Test func autoRearmsDuringRefreshingAndHonorsLatchOrdering() {
+        let engine = makeAuto(prefetch: 100)
+        engine.handleGeometry(bottomDistance: 80, contentFillsViewport: true)
+        #expect(engine.phase == .refreshing)
+        engine.handleGeometry(bottomDistance: 300, contentFillsViewport: true) // out of zone while refreshing → re-arm
+        engine.finish(.hasMore)
+        #expect(engine.phase == .idle)
+        engine.handleGeometry(bottomDistance: 80, contentFillsViewport: true) // back in zone, armed
+        #expect(engine.phase == .refreshing)
+    }
+
+    @Test func autoDoesNotRearmWhileBlocked() {
+        let engine = makeAuto(prefetch: 100)
+        engine.handleGeometry(bottomDistance: 80, contentFillsViewport: true)
+        #expect(engine.phase == .refreshing)
+        engine.finish(.hasMore) // idle, disarmed, still in zone
+        engine.isBlocked = true
+        engine.handleGeometry(bottomDistance: 300, contentFillsViewport: true) // out of zone while blocked → must NOT re-arm
+        engine.isBlocked = false
+        engine.handleGeometry(bottomDistance: 80, contentFillsViewport: true) // back in zone: not armed → no trigger
+        #expect(engine.phase == .idle)
+        engine.handleGeometry(bottomDistance: 300, contentFillsViewport: true) // unblocked out-of-zone → re-arm
+        engine.handleGeometry(bottomDistance: 80, contentFillsViewport: true)
+        #expect(engine.phase == .refreshing)
+    }
+
     @Test func resetReturnsToIdleAndRearms() {
         let engine = makeAuto(prefetch: 100)
         engine.handleGeometry(bottomDistance: 80, contentFillsViewport: true)

@@ -83,6 +83,9 @@ final class _FooterEngine {
         }
     }
 
+    /// Full reset for data-source replacement. Unlike `resetNoMoreData()`, this
+    /// re-arms immediately (`isArmed = true`): if the content is already inside
+    /// the prefetch zone, the next geometry event triggers a load.
     func reset() {
         phase = .idle
         pulledDistance = 0
@@ -90,7 +93,7 @@ final class _FooterEngine {
     }
 
     private func handleAuto(bottomDistance: CGFloat, prefetch: CGFloat, contentFillsViewport: Bool) {
-        if bottomDistance > prefetch { isArmed = true }
+        if bottomDistance > prefetch, !isBlocked { isArmed = true }
         guard phase == .idle, !isBlocked, contentFillsViewport else { return }
         if bottomDistance <= prefetch, isArmed {
             isArmed = false
@@ -99,7 +102,13 @@ final class _FooterEngine {
     }
 
     private func handlePull(pulledUp: CGFloat, contentFillsViewport: Bool) {
-        guard contentFillsViewport else { return }
+        guard contentFillsViewport else {
+            if phase == .pulling || phase == .willRefresh {
+                phase = .idle
+                pulledDistance = 0
+            }
+            return
+        }
         switch phase {
         case .idle:
             guard !isBlocked else { return }
