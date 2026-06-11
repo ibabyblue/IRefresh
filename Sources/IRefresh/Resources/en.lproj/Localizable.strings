@@ -1,0 +1,9 @@
+"irefresh.header.pulling" = "Pull down to refresh";
+"irefresh.header.willRefresh" = "Release to refresh";
+"irefresh.header.refreshing" = "Refreshing…";
+"irefresh.header.lastUpdated" = "Last updated: %@";
+"irefresh.header.lastUpdated.never" = "Never";
+"irefresh.footer.idle" = "Pull up to load more";
+"irefresh.footer.willLoad" = "Release to load more";
+"irefresh.footer.loading" = "Loading…";
+"irefresh.footer.noMoreData" = "No more data";

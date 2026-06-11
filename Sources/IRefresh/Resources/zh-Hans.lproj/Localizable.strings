@@ -1,0 +1,9 @@
+"irefresh.header.pulling" = "下拉刷新";
+"irefresh.header.willRefresh" = "松开立即刷新";
+"irefresh.header.refreshing" = "正在刷新…";
+"irefresh.header.lastUpdated" = "最后更新：%@";
+"irefresh.header.lastUpdated.never" = "从未刷新";
+"irefresh.footer.idle" = "上拉加载更多";
+"irefresh.footer.willLoad" = "松开加载更多";
+"irefresh.footer.loading" = "正在加载…";
+"irefresh.footer.noMoreData" = "没有更多了";
