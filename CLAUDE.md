@@ -12,7 +12,7 @@ swift test         # swift-testing based unit tests
 # iOS slice compile check:
 swift build --triple arm64-apple-ios17.0-simulator --sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)"
 # Demo app:
-xcodebuild -project demo/IRefreshDemo.xcodeproj -scheme IRefreshDemo -destination 'platform=iOS Simulator,name=iPhone 16' build  # demo app (added in Task 10)
+xcodebuild -project demo/IRefreshDemo.xcodeproj -scheme IRefreshDemo -destination 'platform=iOS Simulator,name=iPhone 16' build
 ```
 
 ## Architecture

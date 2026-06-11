@@ -75,6 +75,10 @@ struct FeedView: View {
 
 That's it — classic header and footer included. Omit `.onRefresh`/`.onLoadMore` to disable either direction. Load-more defaults to `.auto(prefetchDistance: 0)` — it fires when the list is scrolled to the bottom.
 
+## Demo
+
+Open `demo/IRefreshDemo.xcodeproj`, select a simulator and run (resolves [lottie-spm](https://github.com/airbnb/lottie-spm) on first build). Covers six pages: Classic, Minimal, custom Lottie header, auto footer with prefetch, pull footer, and programmatic control.
+
 ## Customization
 
 ### Built-in styles
