@@ -84,13 +84,32 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                         .frame(height: footerHoldHeight)
                         .animation(.easeInOut(duration: 0.25), value: footerHoldHeight)
                 }
-                .background { _MetricsProbe(coordinateSpace: Self.coordinateSpace) }
+                .background {
+                    // iOS 17 only: the GeometryReader preference probe is the
+                    // metrics source. On iOS 18+ `onScrollGeometryChange`
+                    // (below) takes over — the probe doesn't deliver updates
+                    // during live gestures there.
+                    if !_supportsReleaseDetection {
+                        _MetricsProbe(coordinateSpace: Self.coordinateSpace)
+                    }
+                }
             }
             .coordinateSpace(name: Self.coordinateSpace)
             .environment(\.iRefreshTexts, texts)
             .modifier(_ScrollPhaseModifier { interacting in
                 headerEngine.handleInteraction(interacting)
                 footerEngine.handleInteraction(interacting)
+            })
+            .modifier(_ScrollMetricsModifier { metrics in
+                metricsCache.latest = metrics
+                Self.drive(
+                    metrics: metrics, viewportHeight: viewportHeight,
+                    headerEngine: headerEngine, footerEngine: footerEngine,
+                    headerTriggerDistance: headerTriggerDistance,
+                    footerTriggerDistance: footerTriggerDistance,
+                    footerMode: footerMode,
+                    hasRefresh: onRefreshAction != nil, hasLoadMore: onLoadMoreAction != nil
+                )
             })
             .onPreferenceChange(_ScrollMetricsKey.self) { [
                 headerEngine, footerEngine, metricsCache,
