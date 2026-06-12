@@ -74,6 +74,12 @@ struct FooterEngineTests {
 
     // MARK: pull mode
 
+    @Test func pullWithoutInteractionStaysIdleOnReleasePath() {
+        let engine = makePull(releaseDetection: true)
+        engine.handleGeometry(bottomDistance: -60, contentFillsViewport: true)
+        #expect(engine.phase == .idle)
+    }
+
     @Test func pullThresholdSemantics() {
         let engine = makePull(releaseDetection: false)
         engine.handleGeometry(bottomDistance: -20, contentFillsViewport: true)
@@ -85,6 +91,7 @@ struct FooterEngineTests {
 
     @Test func pullReleaseSemantics() {
         let engine = makePull(releaseDetection: true)
+        engine.handleInteraction(true)
         engine.handleGeometry(bottomDistance: -60, contentFillsViewport: true)
         #expect(engine.phase == .willRefresh)
         engine.handleGeometry(bottomDistance: -30, contentFillsViewport: true)
@@ -123,6 +130,7 @@ struct FooterEngineTests {
 
     @Test func pullBlockedWillRefreshReleaseDoesNotTrigger() {
         let engine = makePull(releaseDetection: true)
+        engine.handleInteraction(true)
         engine.handleGeometry(bottomDistance: -60, contentFillsViewport: true)
         #expect(engine.phase == .willRefresh)
         engine.isBlocked = true
@@ -132,6 +140,7 @@ struct FooterEngineTests {
 
     @Test func pullResetsToIdleWhenContentStopsFillingViewport() {
         let engine = makePull(releaseDetection: true)
+        engine.handleInteraction(true)
         engine.handleGeometry(bottomDistance: -60, contentFillsViewport: true)
         #expect(engine.phase == .willRefresh)
         engine.handleGeometry(bottomDistance: -60, contentFillsViewport: false)

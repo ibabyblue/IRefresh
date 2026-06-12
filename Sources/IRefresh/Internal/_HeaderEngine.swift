@@ -15,6 +15,11 @@ final class _HeaderEngine {
     var isBlocked = false
     private(set) var phase: IRefreshContext.Phase = .idle
     private(set) var pulledDistance: CGFloat = 0
+    /// iOS 18+ gate: transient transition/bounce geometry (e.g. NavigationStack
+    /// push insets) must not enter `.pulling` without a finger down. iOS 17 has
+    /// no interaction signal, so the gate is bypassed there. Mirrors a physical
+    /// fact, so `reset()` does not clear it.
+    private var isInteracting = false
 
     var progress: Double {
         guard config.triggerDistance > 0 else { return 0 }
@@ -33,7 +38,7 @@ final class _HeaderEngine {
         case .idle:
             guard !isBlocked else { return }
             pulledDistance = max(0, pulled)
-            guard pulledDistance > 0 else { return }
+            guard pulledDistance > 0, isInteracting || !config.supportsReleaseDetection else { return }
             phase = .pulling
             evaluateThreshold()
         case .pulling:
@@ -56,6 +61,7 @@ final class _HeaderEngine {
     /// iOS 18+ only: scroll phase transitions. Release while at/over the
     /// threshold triggers the refresh.
     func handleInteraction(_ isInteracting: Bool) {
+        self.isInteracting = isInteracting
         if !isInteracting, phase == .willRefresh, !isBlocked {
             phase = .refreshing
         }

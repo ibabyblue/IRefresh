@@ -20,7 +20,7 @@ xcodebuild -project demo/IRefreshDemo.xcodeproj -scheme IRefreshDemo -destinatio
 - `IRefreshScrollView` (container) renders `VStack { headerHoldSpacer; content; autoFooterRow?; footerHoldSpacer }` inside a `ScrollView`. Header/pull-footer are overlays offset just outside the content edges; rubber-banding reveals them.
 - `Internal/_HeaderEngine` & `_FooterEngine` are pure `@MainActor @Observable` state machines — all transition logic and edge cases live there and are unit-tested. The container only reacts to `phase` changes (`onChange`): starts tasks, fires haptics (`_Haptics.swift` wraps `UIImpactFeedbackGenerator`), syncs mutual exclusion and the controller.
 - `Internal/_OffsetProbe` reports scroll metrics via PreferenceKey, quantized to 0.5pt.
-- Trigger semantics are version-split: iOS 18+ release-to-refresh (`onScrollPhaseChange` via `_ScrollPhaseObserver.swift` → `handleInteraction`), iOS 17 threshold-trigger. `_supportsReleaseDetection` is the single switch.
+- Trigger semantics are version-split: iOS 18+ release-to-refresh (`onScrollPhaseChange` via `_ScrollPhaseObserver.swift` → `handleInteraction`), iOS 17 threshold-trigger. `_supportsReleaseDetection` is the single switch; on iOS 18+ idle→pulling additionally requires an active interaction (gates out transition/bounce geometry transients).
 - Built-in styles in `Styles/` read `IRefreshTexts` from the environment; strings live in `Resources/en.lproj/Localizable.strings` + `Resources/zh-Hans.lproj/Localizable.strings` (NOT `.xcstrings` — SwiftPM CLI can't compile String Catalogs).
 
 ## Conventions

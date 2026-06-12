@@ -32,6 +32,7 @@ struct HeaderEngineTests {
 
     @Test func releaseSemanticsWaitsForRelease() {
         let engine = makeEngine(releaseDetection: true)
+        engine.handleInteraction(true)
         engine.handleOffset(70)
         #expect(engine.phase == .willRefresh)
         engine.handleInteraction(false)
@@ -40,6 +41,7 @@ struct HeaderEngineTests {
 
     @Test func pullBackBelowThresholdCancels() {
         let engine = makeEngine(releaseDetection: true)
+        engine.handleInteraction(true)
         engine.handleOffset(70)
         #expect(engine.phase == .willRefresh)
         engine.handleOffset(40)
@@ -50,10 +52,23 @@ struct HeaderEngineTests {
 
     @Test func returnToZeroGoesIdle() {
         let engine = makeEngine(releaseDetection: true)
+        engine.handleInteraction(true)
         engine.handleOffset(40)
         #expect(engine.phase == .pulling)
         engine.handleOffset(0)
         #expect(engine.phase == .idle)
+    }
+
+    @Test func offsetWithoutInteractionStaysIdleOnReleasePath() {
+        let engine = makeEngine(releaseDetection: true)
+        engine.handleOffset(70) // transient geometry, no finger down
+        #expect(engine.phase == .idle)
+    }
+
+    @Test func thresholdPathUnaffectedByInteraction() {
+        let engine = makeEngine(releaseDetection: false) // iOS 17: no interaction signal exists
+        engine.handleOffset(30)
+        #expect(engine.phase == .pulling)
     }
 
     // MARK: lifecycle
@@ -101,6 +116,7 @@ struct HeaderEngineTests {
 
     @Test func blockingMidPullPreventsReleaseTrigger() {
         let engine = makeEngine(releaseDetection: true)
+        engine.handleInteraction(true)
         engine.handleOffset(70)
         #expect(engine.phase == .willRefresh)
         engine.isBlocked = true
