@@ -6,10 +6,8 @@ struct IRefreshMinimalHeader: View {
     var body: some View {
         ZStack {
             switch context.phase {
-            case .refreshing:
+            case .refreshing, .finishing:
                 ProgressView()
-            case .finishing:
-                Color.clear
             default:
                 Circle()
                     .trim(from: 0, to: min(context.progress, 1))

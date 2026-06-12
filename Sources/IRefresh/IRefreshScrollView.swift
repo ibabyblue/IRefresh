@@ -158,8 +158,10 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                 .frame(height: headerTriggerDistance)
                 .offset(y: -headerTriggerDistance)
                 // Invisible at rest — otherwise the text shows through the
-                // translucent inline navigation bar.
-                .opacity(headerEngine.phase == .idle ? 0 : 1)
+                // translucent inline navigation bar. The `.finishing` case
+                // animates 1→0 inside the finish() transaction, so the header
+                // (spinner included) fades out over the collapse.
+                .opacity(headerEngine.phase == .idle || headerEngine.phase == .finishing ? 0 : 1)
         }
     }
 
@@ -170,8 +172,9 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                 .frame(maxWidth: .infinity)
                 .frame(height: footerTriggerDistance)
                 .offset(y: footerTriggerDistance)
-                // Invisible at rest, matching the header overlay.
-                .opacity(footerEngine.phase == .idle ? 0 : 1)
+                // Invisible at rest, matching the header overlay; fades out
+                // over the collapse while `.finishing`.
+                .opacity(footerEngine.phase == .idle || footerEngine.phase == .finishing ? 0 : 1)
         }
     }
 
@@ -220,18 +223,12 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
     }
 
     private var headerHoldHeight: CGFloat {
-        switch headerEngine.phase {
-        case .refreshing, .finishing: headerTriggerDistance
-        default: 0
-        }
+        headerEngine.phase == .refreshing ? headerTriggerDistance : 0
     }
 
     private var footerHoldHeight: CGFloat {
         guard case .pull = footerMode else { return 0 }
-        switch footerEngine.phase {
-        case .refreshing, .finishing: return footerTriggerDistance
-        default: return 0
-        }
+        return footerEngine.phase == .refreshing ? footerTriggerDistance : 0
     }
 
     // MARK: - Phase reactions
@@ -250,15 +247,13 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
         refreshTask = Task { [headerEngine, footerEngine] in
             await action?()
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.2)) {
-                headerEngine.finish() // spinner fades (styles hide content in .finishing)
+            withAnimation(.easeInOut(duration: 0.3)) {
+                headerEngine.finish() // hold 60→0 + overlay fade 1→0, one transaction
             }
             footerEngine.resetNoMoreData()
-            try? await Task.sleep(for: .milliseconds(250))
+            try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.3)) {
-                headerEngine.didCollapse() // hold collapse + overlay opacity → 0, animated
-            }
+            headerEngine.didCollapse() // invisible: opacity already 0, hold already 0
         }
     }
 
@@ -276,15 +271,13 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
         loadTask = Task { [footerEngine] in
             let result = await action?() ?? .hasMore
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.2)) {
-                footerEngine.finish(result) // also animates the noMoreData hold-collapse in pull mode
+            withAnimation(.easeInOut(duration: 0.3)) {
+                footerEngine.finish(result) // hold collapse + overlay fade, one transaction
             }
             if footerEngine.phase == .finishing {
-                try? await Task.sleep(for: .milliseconds(250))
+                try? await Task.sleep(for: .milliseconds(350))
                 guard !Task.isCancelled else { return }
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    footerEngine.didCollapse()
-                }
+                footerEngine.didCollapse() // invisible: opacity already 0, hold already 0
             }
         }
     }
@@ -294,7 +287,9 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
     private func wireController() {
         guard let controller else { return }
         controller._beginRefreshing = { [weak headerEngine] in
-            headerEngine?.beginRefreshing()
+            withAnimation(.easeInOut(duration: 0.25)) {
+                headerEngine?.beginRefreshing()
+            }
         }
         controller._resetNoMoreData = { [weak footerEngine] in
             footerEngine?.resetNoMoreData()

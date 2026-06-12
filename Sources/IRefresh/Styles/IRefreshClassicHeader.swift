@@ -21,9 +21,6 @@ struct IRefreshClassicHeader: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Fade everything out during the end-of-refresh beat, before the
-        // container animates the hold collapse.
-        .opacity(context.phase == .finishing ? 0 : 1)
         .onAppear(perform: loadLastUpdated)
         .onChange(of: context.phase) { old, new in
             if old == .refreshing, new == .finishing {
@@ -43,12 +40,10 @@ struct IRefreshClassicHeader: View {
     @ViewBuilder
     private var indicator: some View {
         switch context.phase {
-        case .refreshing:
+        case .refreshing, .finishing:
+            // Keep spinning through `.finishing` — the container fades the
+            // whole overlay out over the collapse animation.
             ProgressView()
-        case .finishing:
-            // No spinner while the header fades out — and explicitly not the
-            // arrow either (the `default:` branch would bring it back).
-            Color.clear
         default:
             Image(systemName: "arrow.down")
                 .font(.system(size: 14, weight: .medium))
