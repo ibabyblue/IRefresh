@@ -151,10 +151,10 @@ English and Simplified Chinese ship by default and follow the system language. O
 
 ## How It Works
 
-- Content lives in a plain `ScrollView`; zero-size GeometryReader probes report scroll metrics (quantized to 0.5pt) into small state machines.
+- Content lives in a plain `ScrollView`. On iOS 18+ scroll metrics come from `onScrollGeometryChange` (reliable during live gestures); on iOS 17 a zero-size GeometryReader probe is the fallback source. Metrics are quantized to 0.5pt and feed small state machines.
 - The header sits directly above the content, revealed by the native rubber-band — no offset hacks while dragging, fully finger-tracking.
-- While refreshing, an animated spacer "holds" the header visible; it collapses when your async closure returns.
-- On iOS 18+, `onScrollPhaseChange` detects finger release for faithful MJRefresh semantics. On iOS 17 that API doesn't exist, so crossing the threshold triggers immediately (with a haptic).
+- While refreshing, an animated spacer "holds" the header visible; when your async closure returns, the header fades out together with a smooth collapse animation.
+- On iOS 18+, `onScrollPhaseChange` detects finger release for faithful MJRefresh semantics (and gates out non-interactive geometry transients). On iOS 17 that API doesn't exist, so crossing the threshold triggers immediately (with a haptic).
 
 ## License
 
