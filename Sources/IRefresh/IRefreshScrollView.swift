@@ -152,29 +152,34 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
 
     @ViewBuilder
     private var headerOverlay: some View {
-        if onRefreshAction != nil {
+        // Structurally absent while idle — an opacity-hidden view would keep
+        // its idle status text alive, and an animated idle→refreshing
+        // transition (programmatic `beginRefreshing()`) then crossfades that
+        // stale text into view as a ghost. Inserting fresh shows the new
+        // phase's content only. Also keeps idle text from showing through
+        // the translucent inline navigation bar.
+        if onRefreshAction != nil, headerEngine.phase != .idle {
             headerBuilder(headerEngine.context)
                 .frame(maxWidth: .infinity)
                 .frame(height: headerTriggerDistance)
                 .offset(y: -headerTriggerDistance)
-                // Invisible at rest — otherwise the text shows through the
-                // translucent inline navigation bar. The `.finishing` case
-                // animates 1→0 inside the finish() transaction, so the header
-                // (spinner included) fades out over the collapse.
-                .opacity(headerEngine.phase == .idle || headerEngine.phase == .finishing ? 0 : 1)
+                // `.finishing` animates 1→0 inside the finish() transaction,
+                // so the header (spinner included) fades out over the collapse.
+                .opacity(headerEngine.phase == .finishing ? 0 : 1)
         }
     }
 
     @ViewBuilder
     private var pullFooterOverlay: some View {
-        if onLoadMoreAction != nil, case .pull = footerMode, footerEngine.contentFillsViewport {
+        if onLoadMoreAction != nil, case .pull = footerMode, footerEngine.contentFillsViewport,
+           footerEngine.phase != .idle {
             footerBuilder(footerEngine.context)
                 .frame(maxWidth: .infinity)
                 .frame(height: footerTriggerDistance)
                 .offset(y: footerTriggerDistance)
-                // Invisible at rest, matching the header overlay; fades out
-                // over the collapse while `.finishing`.
-                .opacity(footerEngine.phase == .idle || footerEngine.phase == .finishing ? 0 : 1)
+                // Structurally absent while idle, matching the header overlay;
+                // fades out over the collapse while `.finishing`.
+                .opacity(footerEngine.phase == .finishing ? 0 : 1)
         }
     }
 
