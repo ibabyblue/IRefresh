@@ -67,9 +67,6 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
             let viewportHeight = viewport.size.height
             ScrollView(.vertical) {
                 VStack(spacing: 0) {
-                    Color.clear
-                        .frame(height: headerHoldHeight)
-
                     content
                         .overlay(alignment: .top) { headerOverlay }
                         .overlay(alignment: .bottom) { pullFooterOverlay }
@@ -78,9 +75,6 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                         footerBuilder(footerEngine.context)
                             .frame(maxWidth: .infinity)
                     }
-
-                    Color.clear
-                        .frame(height: footerHoldHeight)
                 }
                 .background {
                     // iOS 17 only: the GeometryReader preference probe is the
@@ -92,6 +86,14 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                     }
                 }
             }
+            // The refresh/load "hold" is a content margin (UIKit contentInset
+            // equivalent), NOT a spacer in the content: changing an inset
+            // doesn't displace content during overscroll, so on release the
+            // rubber-band settles directly at the hold position — a spacer
+            // would shift all rows down instantly and cause a visible
+            // downward jump before the bounce-back.
+            .contentMargins(.top, headerHoldHeight, for: .scrollContent)
+            .contentMargins(.bottom, footerHoldHeight, for: .scrollContent)
             .coordinateSpace(name: Self.coordinateSpace)
             .environment(\.iRefreshTexts, texts)
             .modifier(_ScrollPhaseModifier { interacting in
@@ -227,10 +229,12 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
         return true
     }
 
+    /// Top content margin while refreshing — the inset the bounce settles at.
     private var headerHoldHeight: CGFloat {
         headerEngine.phase == .refreshing ? headerTriggerDistance : 0
     }
 
+    /// Bottom content margin while loading more (`.pull` mode only).
     private var footerHoldHeight: CGFloat {
         guard case .pull = footerMode else { return 0 }
         return footerEngine.phase == .refreshing ? footerTriggerDistance : 0

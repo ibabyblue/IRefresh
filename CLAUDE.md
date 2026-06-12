@@ -17,7 +17,7 @@ xcodebuild -project demo/IRefreshDemo.xcodeproj -scheme IRefreshDemo -destinatio
 
 ## Architecture
 
-- `IRefreshScrollView` (container) renders `VStack { headerHoldSpacer; content; autoFooterRow?; footerHoldSpacer }` inside a `ScrollView`. Header/pull-footer are overlays offset just outside the content edges; rubber-banding reveals them.
+- `IRefreshScrollView` (container) renders `VStack { content; autoFooterRow? }` inside a `ScrollView`; the refreshing/loading "hold" is `.contentMargins(for: .scrollContent)` on the ScrollView (an inset, like UIKit `contentInset` — it doesn't displace content during overscroll, so release settles directly at the hold). Header/pull-footer are overlays offset just outside the content edges; rubber-banding reveals them.
 - `Internal/_HeaderEngine` & `_FooterEngine` are pure `@MainActor @Observable` state machines — all transition logic and edge cases live there and are unit-tested. The container only reacts to `phase` changes (`onChange`): starts tasks, fires haptics (`_Haptics.swift` wraps `UIImpactFeedbackGenerator`), syncs mutual exclusion and the controller.
 - `Internal/_OffsetProbe` reports scroll metrics via PreferenceKey, quantized to 0.5pt.
 - Trigger semantics are version-split: iOS 18+ release-to-refresh (`onScrollPhaseChange` via `_ScrollPhaseObserver.swift` → `handleInteraction`), iOS 17 threshold-trigger. `_supportsReleaseDetection` is the single switch; on iOS 18+ idle→pulling additionally requires an active interaction (gates out transition/bounce geometry transients).
