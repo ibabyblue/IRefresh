@@ -8,6 +8,25 @@ final class _MetricsCache {
     var latest = _ScrollMetrics()
 }
 
+/// Reference-typed hold state so the end-of-refresh Task closures can mutate
+/// it without capturing `self`. The "hold" is hybrid:
+/// - **Margin** (`.contentMargins`, UIKit contentInset equivalent) for
+///   gesture-triggered entry: changing an inset doesn't displace content
+///   mid-rubber-band, so the release settles directly onto the hold.
+/// - **Spacer** (layout) for programmatic entry and the end-of-refresh
+///   collapse: margins cannot animate, spacers can.
+@MainActor @Observable
+final class _HoldState {
+    /// Inset-based hold: used when refresh is triggered from an overscroll
+    /// gesture — margins don't displace content mid-rubber-band.
+    var headerMargin: CGFloat = 0
+    var footerMargin: CGFloat = 0
+    /// Layout-based hold: used for programmatic entry and for the animated
+    /// collapse (margins cannot animate; spacers can).
+    var headerSpacer: CGFloat = 0
+    var footerSpacer: CGFloat = 0
+}
+
 /// A `ScrollView`-based container with MJRefresh-style pull-to-refresh and
 /// load-more. Host any SwiftUI content (LazyVStack, Grid, …) and chain the
 /// builder modifiers:
@@ -33,6 +52,7 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
     @State private var headerEngine = _HeaderEngine()
     @State private var footerEngine = _FooterEngine()
     @State private var metricsCache = _MetricsCache()
+    @State private var holdState = _HoldState()
     @State private var refreshTask: Task<Void, Never>?
     @State private var loadTask: Task<Void, Never>?
 
@@ -67,6 +87,11 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
             let viewportHeight = viewport.size.height
             ScrollView(.vertical) {
                 VStack(spacing: 0) {
+                    // Spacer half of the hybrid hold (see below): grows for
+                    // programmatic entry, and carries the animated collapse.
+                    Color.clear
+                        .frame(height: holdState.headerSpacer)
+
                     content
                         .overlay(alignment: .top) { headerOverlay }
                         .overlay(alignment: .bottom) { pullFooterOverlay }
@@ -75,6 +100,9 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                         footerBuilder(footerEngine.context)
                             .frame(maxWidth: .infinity)
                     }
+
+                    Color.clear
+                        .frame(height: holdState.footerSpacer)
                 }
                 .background {
                     // iOS 17 only: the GeometryReader preference probe is the
@@ -86,14 +114,18 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                     }
                 }
             }
-            // The refresh/load "hold" is a content margin (UIKit contentInset
-            // equivalent), NOT a spacer in the content: changing an inset
-            // doesn't displace content during overscroll, so on release the
-            // rubber-band settles directly at the hold position — a spacer
-            // would shift all rows down instantly and cause a visible
-            // downward jump before the bounce-back.
-            .contentMargins(.top, headerHoldHeight, for: .scrollContent)
-            .contentMargins(.bottom, footerHoldHeight, for: .scrollContent)
+            // Hybrid hold. Gesture-triggered entry sets the *margin* (UIKit
+            // contentInset equivalent): changing an inset doesn't displace
+            // content during overscroll, so on release the rubber-band
+            // settles directly at the hold position — a spacer would shift
+            // all rows down instantly and cause a visible downward jump.
+            // But margins cannot animate, so at end of refresh the margin is
+            // swapped for the *spacer* in one non-animated layout pass
+            // (margin −60 / spacer +60: net-zero visually) and the spacer
+            // then collapses inside the `finish()` animation transaction.
+            // Programmatic entry (no overscroll) uses the spacer directly.
+            .contentMargins(.top, holdState.headerMargin, for: .scrollContent)
+            .contentMargins(.bottom, holdState.footerMargin, for: .scrollContent)
             .coordinateSpace(name: Self.coordinateSpace)
             .environment(\.iRefreshTexts, texts)
             .modifier(_ScrollPhaseModifier { interacting in
@@ -229,17 +261,6 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
         return true
     }
 
-    /// Top content margin while refreshing — the inset the bounce settles at.
-    private var headerHoldHeight: CGFloat {
-        headerEngine.phase == .refreshing ? headerTriggerDistance : 0
-    }
-
-    /// Bottom content margin while loading more (`.pull` mode only).
-    private var footerHoldHeight: CGFloat {
-        guard case .pull = footerMode else { return 0 }
-        return footerEngine.phase == .refreshing ? footerTriggerDistance : 0
-    }
-
     // MARK: - Phase reactions
 
     private func headerPhaseChanged(from old: IRefreshContext.Phase, to new: IRefreshContext.Phase) {
@@ -252,12 +273,31 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
         if old == .pulling {
             _Haptics.impact() // iOS 17 threshold-trigger path
         }
+        if headerEngine.pulledDistance > 0 {
+            // Gesture entry: inset, instant — no displacement mid-overscroll,
+            // the release bounce settles directly onto the hold.
+            holdState.headerMargin = headerTriggerDistance
+        } else {
+            // Programmatic entry at rest: a margin would not open a visible
+            // gap; grow an animatable spacer instead.
+            withAnimation(.easeInOut(duration: 0.25)) {
+                holdState.headerSpacer = headerTriggerDistance
+            }
+        }
         let action = onRefreshAction
-        refreshTask = Task { [headerEngine, footerEngine] in
+        refreshTask = Task { [headerEngine, footerEngine, holdState, headerTriggerDistance] in
             await action?()
             guard !Task.isCancelled else { return }
+            if holdState.headerMargin > 0 {
+                // Net-zero swap, NOT animated: removing the top margin clamps
+                // the offset up by the hold while the spacer pushes content
+                // down by the same amount — no visual change, same layout pass.
+                holdState.headerMargin = 0
+                holdState.headerSpacer = headerTriggerDistance
+            }
             withAnimation(.easeInOut(duration: 0.3)) {
-                headerEngine.finish() // hold 60→0 + overlay fade 1→0, one transaction
+                headerEngine.finish() // overlay fade 1→0 ...
+                holdState.headerSpacer = 0 // ... + spacer collapse, one transaction
             }
             footerEngine.resetNoMoreData()
             try? await Task.sleep(for: .milliseconds(350))
@@ -276,12 +316,30 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
         if old == .pulling {
             _Haptics.impact() // iOS 17 threshold-trigger path (pull mode)
         }
+        if case .pull = footerMode {
+            // Same hybrid branch shape as the header. In practice pull-mode
+            // triggers always have pulledDistance > 0 (no programmatic load),
+            // but keep the symmetry.
+            if footerEngine.pulledDistance > 0 {
+                holdState.footerMargin = footerTriggerDistance
+            } else {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    holdState.footerSpacer = footerTriggerDistance
+                }
+            }
+        }
         let action = onLoadMoreAction
-        loadTask = Task { [footerEngine] in
+        loadTask = Task { [footerEngine, holdState, footerTriggerDistance] in
             let result = await action?() ?? .hasMore
             guard !Task.isCancelled else { return }
+            if holdState.footerMargin > 0 {
+                // Net-zero margin→spacer swap, NOT animated (see header task).
+                holdState.footerMargin = 0
+                holdState.footerSpacer = footerTriggerDistance
+            }
             withAnimation(.easeInOut(duration: 0.3)) {
-                footerEngine.finish(result) // hold collapse + overlay fade, one transaction
+                footerEngine.finish(result) // overlay fade ...
+                holdState.footerSpacer = 0 // ... + spacer collapse, one transaction
             }
             if footerEngine.phase == .finishing {
                 try? await Task.sleep(for: .milliseconds(350))
@@ -296,9 +354,9 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
     private func wireController() {
         guard let controller else { return }
         controller._beginRefreshing = { [weak headerEngine] in
-            withAnimation(.easeInOut(duration: 0.25)) {
-                headerEngine?.beginRefreshing()
-            }
+            // No withAnimation here: the phase reaction animates the spacer
+            // (programmatic-entry branch in `headerPhaseChanged`).
+            headerEngine?.beginRefreshing()
         }
         controller._resetNoMoreData = { [weak footerEngine] in
             footerEngine?.resetNoMoreData()
@@ -313,6 +371,10 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
         loadTask = nil
         headerEngine.reset()
         footerEngine.reset()
+        holdState.headerMargin = 0
+        holdState.footerMargin = 0
+        holdState.headerSpacer = 0
+        holdState.footerSpacer = 0
         controller?._beginRefreshing = nil
         controller?._resetNoMoreData = nil
         controller?.isRefreshing = false
