@@ -35,9 +35,14 @@ final class DemoFeedModel {
 
     func loadMore() async -> IRefreshLoadResult {
         try? await Task.sleep(for: .seconds(1))
+        // At the limit, append nothing and report exhaustion — so removing the
+        // hold springs the over-scroll back as a visible rebound (instead of
+        // freshly-appended rows filling the gap).
+        guard items.count < pageLimit else { return .noMoreData }
         let next = items.count + 1
-        items.append(contentsOf: (next..<(next + 15)).map(DemoItem.init(number:)))
-        return items.count >= pageLimit ? .noMoreData : .hasMore
+        let upper = min(next + 15, pageLimit + 1)
+        items.append(contentsOf: (next..<upper).map(DemoItem.init(number:)))
+        return .hasMore
     }
 }
 
