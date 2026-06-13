@@ -18,7 +18,8 @@ struct LottieDemo: View {
     }
 }
 
-/// A custom header: pull progress scrubs the animation, refreshing loops it.
+/// A custom header: static while pulling (fades in via the container's
+/// progress-based opacity), loops while refreshing.
 struct LottieRefreshHeader: View {
     let context: IRefreshContext
 
@@ -29,8 +30,10 @@ struct LottieRefreshHeader: View {
                 LottieView(animation: .named("refresh_loading"))
                     .playing(loopMode: .loop)
             default:
+                // While pulling: static first frame; the container fades the
+                // whole header in with pull progress (no scrubbing/playing).
                 LottieView(animation: .named("refresh_loading"))
-                    .currentProgress(min(context.progress, 1))
+                    .currentProgress(0)
             }
         }
         .frame(height: 60)

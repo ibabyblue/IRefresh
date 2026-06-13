@@ -25,6 +25,14 @@ final class _HoldState {
     /// collapse (margins cannot animate; spacers can).
     var headerSpacer: CGFloat = 0
     var footerSpacer: CGFloat = 0
+    /// Pull-footer retract transform (1 = fully shown, 0 = slid down out of
+    /// view). The `.noMoreData` rebound is driven by animating this rather
+    /// than the bottom spacer: a view transform is NOT scroll-clamped, so it
+    /// retracts smoothly over 0.3s, whereas collapsing the held bottom spacer
+    /// re-clamps `contentOffset` in one frame (the user is pinned at
+    /// maxOffset) and would snap. Reset to 1 (off-screen) after the slide so a
+    /// later pull re-reveals the terminal "no more data" text.
+    var footerCollapse: CGFloat = 1
 }
 
 /// A `ScrollView`-based container with MJRefresh-style pull-to-refresh and
@@ -226,7 +234,10 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
             footerBuilder(footerEngine.context)
                 .frame(maxWidth: .infinity)
                 .frame(height: footerTriggerDistance)
-                .offset(y: footerTriggerDistance)   // sits just below content's bottom edge
+                // Base offset sits just below content's bottom edge; the
+                // `footerCollapse` term slides it a further `footerTriggerDistance`
+                // DOWN out of view (1→0) for the `.noMoreData` rebound.
+                .offset(y: footerTriggerDistance + footerTriggerDistance * (1 - holdState.footerCollapse))
                 .opacity(footerOverlayOpacity)
         }
     }
@@ -235,7 +246,8 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
     private var footerOverlayOpacity: Double {
         switch footerEngine.phase {
         case .pulling, .willRefresh: return min(1, max(0, footerEngine.progress))  // fade in with pull
-        default: return 1   // refreshing / finishing / noMoreData
+        case .noMoreData: return holdState.footerCollapse  // fades as it slides down on rebound; 1 (visible) at rest
+        default: return 1   // refreshing / finishing
         }
     }
 
@@ -331,6 +343,10 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
     private func footerPhaseChanged(from old: IRefreshContext.Phase, to new: IRefreshContext.Phase) {
         headerEngine.isBlocked = footerEngine.isBusy
         controller?.isLoadingMore = new == .refreshing
+        // Re-arm the retract transform whenever the footer returns to idle
+        // (e.g. `resetNoMoreData()` after a refresh), so the next pull starts
+        // from a fully-shown footer.
+        if new == .idle { holdState.footerCollapse = 1 }
         if old == .pulling, new == .willRefresh {
             _Haptics.impact() // iOS 18: threshold reached
         }
@@ -369,12 +385,23 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                 holdState.footerSpacer = 0
                 footerEngine.didCollapse()
             case .noMoreData:
-                // No more data: animate the held over-scroll springing back
-                // (visible rebound). The content-anchored footer becomes the
-                // terminal "no more data" text below content — pull up to see.
+                // No more data: the loading footer slides DOWN out of view as
+                // a view transform (`footerCollapse` 1→0). A transform is not
+                // scroll-clamped, so it retracts smoothly over 0.3s — unlike
+                // collapsing the held bottom spacer alone, which re-clamps the
+                // pinned-at-maxOffset contentOffset in one frame and snaps.
+                // The spacer still collapses (the held region must close), but
+                // the eye tracks the smoothly-sliding footer.
                 withAnimation(.easeInOut(duration: 0.3)) {
+                    holdState.footerCollapse = 0
                     holdState.footerSpacer = 0
                 }
+                // After the slide, restore the transform (instantly, off-screen)
+                // so a later pull re-reveals the terminal "no more data" text
+                // anchored just below content.
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                holdState.footerCollapse = 1
             default:
                 break
             }
@@ -407,6 +434,7 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
         holdState.footerMargin = 0
         holdState.headerSpacer = 0
         holdState.footerSpacer = 0
+        holdState.footerCollapse = 1
         controller?._beginRefreshing = nil
         controller?._resetNoMoreData = nil
         controller?.isRefreshing = false
