@@ -25,12 +25,26 @@ final class _HoldState {
     /// collapse (margins cannot animate; spacers can).
     var headerSpacer: CGFloat = 0
     var footerSpacer: CGFloat = 0
-    /// Viewport-pinned pull-footer reveal: how far the footer has slid up into
-    /// the viewport bottom. Finger-tracks while pulling, held open while
-    /// refreshing, slides back to 0 as a visible rebound on finish. Lives here
-    /// (not as a `@State` on the view) so the end-of-load Task can mutate it
-    /// without capturing the non-Sendable view `self` (Swift 6).
-    var footerReveal: CGFloat = 0
+    /// Terminal (`.noMoreData`) footer visibility gate. The pull footer is
+    /// content-anchored, and on iOS 26 a content overlay's downward `.offset`
+    /// is counted into the ScrollView's `contentSize`, so the terminal footer
+    /// would rest *visible* at the scroll bottom — a persistent banner instead
+    /// of pull-to-see. We keep it content-anchored (so it tracks the finger)
+    /// but gate its OPACITY on live over-scroll beyond the resting floor:
+    /// - `footerOverscroll` is the current bottom over-scroll
+    ///   (`viewportHeight − content.bottom`), refreshed each metric tick while
+    ///   terminal.
+    /// - `footerPullFloor` is the running MINIMUM of that over-scroll — the
+    ///   amount the footer occupies in `contentSize` at rest. It self-calibrates
+    ///   (≈0 pre-iOS-26, ≈2×triggerDistance on iOS 26), so `footerOverscroll −
+    ///   footerPullFloor` is the *extra* pull past rest: 0 at rest (hidden),
+    ///   growing as the user pulls (fades in). Set here (not `@State`) so the
+    ///   end-of-load Task can mutate it without capturing the view (Swift 6).
+    var footerOverscroll: CGFloat = 0
+    var footerPullFloor: CGFloat = .greatestFiniteMagnitude
+    /// The just-loaded terminal footer fades out (1→0) over the rebound so it
+    /// doesn't pop away; the pull-to-see over-scroll gate takes over afterwards.
+    var footerTerminalFade: CGFloat = 0
 }
 
 /// A `ScrollView`-based container with MJRefresh-style pull-to-refresh and
@@ -100,6 +114,7 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
 
                     content
                         .overlay(alignment: .top) { headerOverlay }
+                        .overlay(alignment: .bottom) { pullFooterOverlay }
 
                     if isAutoFooterActive {
                         footerBuilder(footerEngine.context)
@@ -119,10 +134,6 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                     }
                 }
             }
-            // Pull footer is pinned to the *viewport* bottom (not scrolling
-            // content), so appended rows during `loadMore()` can't teleport it
-            // off-screen mid-collapse. Its slide is driven by `footerReveal`.
-            .overlay(alignment: .bottom) { pullFooterOverlay }
             // Hybrid hold. Gesture-triggered entry sets the *margin* (UIKit
             // contentInset equivalent): changing an inset doesn't displace
             // content during overscroll, so on release the rubber-band
@@ -146,15 +157,11 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                 Self.drive(
                     metrics: metrics, viewportHeight: viewportHeight,
                     headerEngine: headerEngine, footerEngine: footerEngine,
+                    holdState: holdState,
                     headerTriggerDistance: headerTriggerDistance,
                     footerTriggerDistance: footerTriggerDistance,
                     footerMode: footerMode,
                     hasRefresh: onRefreshAction != nil, hasLoadMore: onLoadMoreAction != nil
-                )
-                Self.revealTerminalFooter(
-                    metrics: metrics, viewportHeight: viewportHeight,
-                    footerEngine: footerEngine, holdState: holdState,
-                    footerTriggerDistance: footerTriggerDistance
                 )
             })
             .onPreferenceChange(_ScrollMetricsKey.self) { [
@@ -168,14 +175,10 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                     Self.drive(
                         metrics: metrics, viewportHeight: viewportHeight,
                         headerEngine: headerEngine, footerEngine: footerEngine,
+                        holdState: holdState,
                         headerTriggerDistance: headerTriggerDistance,
                         footerTriggerDistance: footerTriggerDistance,
                         footerMode: footerMode, hasRefresh: hasRefresh, hasLoadMore: hasLoadMore
-                    )
-                    Self.revealTerminalFooter(
-                        metrics: metrics, viewportHeight: viewportHeight,
-                        footerEngine: footerEngine, holdState: holdState,
-                        footerTriggerDistance: footerTriggerDistance
                     )
                 }
             }
@@ -184,6 +187,7 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                 Self.drive(
                     metrics: metricsCache.latest, viewportHeight: newHeight,
                     headerEngine: headerEngine, footerEngine: footerEngine,
+                    holdState: holdState,
                     headerTriggerDistance: headerTriggerDistance,
                     footerTriggerDistance: footerTriggerDistance,
                     footerMode: footerMode,
@@ -195,14 +199,6 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
             }
             .onChange(of: footerEngine.phase) { old, new in
                 footerPhaseChanged(from: old, to: new)
-            }
-            .onChange(of: footerEngine.pulledDistance) { _, _ in
-                // Finger-track the viewport-pinned pull footer while dragging.
-                // Other phases (refreshing / finishing / noMoreData) own
-                // `footerReveal` themselves — leave it alone here.
-                if footerEngine.phase == .pulling || footerEngine.phase == .willRefresh {
-                    holdState.footerReveal = min(footerTriggerDistance, footerEngine.pulledDistance)
-                }
             }
             .onAppear(perform: wireController)
             .onDisappear(perform: tearDown)
@@ -243,18 +239,35 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
 
     @ViewBuilder
     private var pullFooterOverlay: some View {
+        // Content-anchored (MJRefresh back-footer): sits just below content's
+        // bottom edge and moves with the content/finger as you pull up. Pulling
+        // reveals it; on `.hasMore` the appended rows ride it off-screen
+        // (instant disappear); on `.noMoreData` it becomes the terminal
+        // "no more data" text below content — pull up to see it.
         if onLoadMoreAction != nil, case .pull = footerMode,
            footerEngine.contentFillsViewport, footerEngine.phase != .idle {
             footerBuilder(footerEngine.context)
                 .frame(maxWidth: .infinity)
                 .frame(height: footerTriggerDistance)
-                // Pinned to the viewport bottom; slides up into view by
-                // `footerReveal`. Decoupled from content's bottom so appended
-                // rows during `loadMore()` can't teleport it off-screen.
-                .offset(y: footerTriggerDistance - holdState.footerReveal)
-                .opacity(footerEngine.phase == .finishing ? 0 : 1)  // fade backstop
-                .allowsHitTesting(false)
-                .clipped()
+                .offset(y: footerTriggerDistance)   // sits just below content's bottom edge
+                .opacity(footerOverlayOpacity)
+        }
+    }
+
+    /// Drives the pull footer's fade — mirrors `headerOverlayOpacity`.
+    private var footerOverlayOpacity: Double {
+        switch footerEngine.phase {
+        case .pulling, .willRefresh:
+            return min(1, max(0, footerEngine.progress))  // fade in with pull
+        case .noMoreData:
+            // Hidden at rest, fades in only while pulling past the resting
+            // floor (see `_HoldState.footerPullFloor`); `footerTerminalFade`
+            // carries the just-loaded footer's fade-out over the rebound.
+            let reveal = max(0, holdState.footerOverscroll - holdState.footerPullFloor)
+            let pullToSee = min(1, Double(reveal / max(1, footerTriggerDistance)))
+            return max(Double(holdState.footerTerminalFade), pullToSee)
+        default:
+            return 1   // refreshing / finishing
         }
     }
 
@@ -265,6 +278,7 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
         viewportHeight: CGFloat,
         headerEngine: _HeaderEngine,
         footerEngine: _FooterEngine,
+        holdState: _HoldState,
         headerTriggerDistance: CGFloat,
         footerTriggerDistance: CGFloat,
         footerMode: IRefreshFooterMode,
@@ -294,26 +308,17 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
                 bottomDistance: metrics.bottom - viewportHeight,
                 contentFillsViewport: viewportHeight > 0 && contentHeight >= viewportHeight
             )
+            // Terminal-footer visibility gate: track live over-scroll and its
+            // resting floor (running minimum) so the content-anchored "no more
+            // data" footer is hidden at rest and pull-to-see (see
+            // `footerOverlayOpacity`). Gated to `.noMoreData` so plain idle
+            // scrolling never writes here (no spurious body re-renders).
+            if footerEngine.phase == .noMoreData {
+                let overscroll = max(0, viewportHeight - metrics.bottom)
+                holdState.footerOverscroll = overscroll
+                holdState.footerPullFloor = min(holdState.footerPullFloor, overscroll)
+            }
         }
-    }
-
-    /// In the terminal `.noMoreData` state the viewport-pinned footer is parked
-    /// just below the viewport (`footerReveal == 0`), so at rest it is NOT a
-    /// persistent bottom banner. Pulling up past the content's bottom
-    /// rubber-bands it into view (tracking the over-scroll, clamped to the
-    /// trigger distance) so the "no more data" text can be read — then it slides
-    /// back out on release. Mirrors the header's pull-to-reveal. The footer
-    /// engine freezes `pulledDistance` in `.noMoreData`, so the reveal is driven
-    /// straight from geometry here rather than from the engine. Static so the
-    /// `@Sendable` `onPreferenceChange` path can call it without capturing self.
-    @MainActor
-    private static func revealTerminalFooter(
-        metrics: _ScrollMetrics, viewportHeight: CGFloat,
-        footerEngine: _FooterEngine, holdState: _HoldState, footerTriggerDistance: CGFloat
-    ) {
-        guard footerEngine.phase == .noMoreData else { return }
-        let overscroll = max(0, viewportHeight - metrics.bottom)
-        holdState.footerReveal = min(footerTriggerDistance, overscroll)
     }
 
     private var isAutoFooterActive: Bool {
@@ -369,6 +374,13 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
     private func footerPhaseChanged(from old: IRefreshContext.Phase, to new: IRefreshContext.Phase) {
         headerEngine.isBlocked = footerEngine.isBusy
         controller?.isLoadingMore = new == .refreshing
+        if new == .idle {
+            // Leaving the terminal state (resetNoMoreData / hasMore collapse):
+            // disarm the visibility gate so a later .noMoreData starts fresh.
+            holdState.footerTerminalFade = 0
+            holdState.footerPullFloor = .greatestFiniteMagnitude
+            holdState.footerOverscroll = 0
+        }
         if old == .pulling, new == .willRefresh {
             _Haptics.impact() // iOS 18: threshold reached
         }
@@ -376,8 +388,6 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
         if old == .pulling {
             _Haptics.impact() // iOS 17 threshold-trigger path (pull mode)
         }
-        // Hold the viewport-pinned pull footer fully open while loading.
-        holdState.footerReveal = footerTriggerDistance
         if case .pull = footerMode {
             // Same hybrid branch shape as the header. In practice pull-mode
             // triggers always have pulledDistance > 0 (no programmatic load),
@@ -394,26 +404,36 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
         loadTask = Task { [footerEngine, holdState, footerTriggerDistance] in
             let result = await action?() ?? .hasMore
             guard !Task.isCancelled else { return }
+            // Collapse the gesture-entry margin to a spacer (net-zero) so we can
+            // drop/animate it (see header task for the swap rationale).
             if holdState.footerMargin > 0 {
-                // Net-zero margin→spacer swap, NOT animated (see header task).
                 holdState.footerMargin = 0
                 holdState.footerSpacer = footerTriggerDistance
             }
-            withAnimation(.easeInOut(duration: 0.3)) {
-                footerEngine.finish(result) // .hasMore → .finishing ; .noMoreData → .noMoreData
-                holdState.footerSpacer = 0   // collapse the hold
-                // Both results slide the viewport-pinned footer back down out of
-                // view as a visible rebound (in the same transaction as the hold
-                // collapse). `.hasMore` then vanishes; `.noMoreData` becomes the
-                // terminal text that lives *below* the viewport — pulling up
-                // re-reveals it (see `revealTerminalFooter`), so at rest it is
-                // hidden rather than a persistent bottom banner.
-                holdState.footerReveal = 0
-            }
-            if footerEngine.phase == .finishing {
-                try? await Task.sleep(for: .milliseconds(350))
-                guard !Task.isCancelled else { return }
-                footerEngine.didCollapse() // invisible: opacity already 0, hold already 0
+            footerEngine.finish(result) // .hasMore → .finishing ; .noMoreData → .noMoreData
+            switch footerEngine.phase {
+            case .finishing:
+                // hasMore: loading vanishes immediately. The appended rows ride
+                // the content-anchored footer off-screen, so remove the hold
+                // with NO animation (no rebound).
+                holdState.footerSpacer = 0
+                footerEngine.didCollapse()
+            case .noMoreData:
+                // No more data: spring the held over-scroll back (visible
+                // rebound) AND fade the just-loaded footer out (1→0) over the
+                // same transaction, so it doesn't pop away — and re-arm the
+                // pull-floor so the over-scroll gate recalibrates to the new
+                // resting position as the content settles. Thereafter the
+                // content-anchored footer is the terminal "no more data" text:
+                // hidden at rest, pull up to see (see `footerOverlayOpacity`).
+                holdState.footerPullFloor = .greatestFiniteMagnitude
+                holdState.footerTerminalFade = 1
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    holdState.footerSpacer = 0
+                    holdState.footerTerminalFade = 0
+                }
+            default:
+                break
             }
         }
     }
@@ -444,7 +464,9 @@ public struct IRefreshScrollView<Content: View, Header: View, Footer: View>: Vie
         holdState.footerMargin = 0
         holdState.headerSpacer = 0
         holdState.footerSpacer = 0
-        holdState.footerReveal = 0
+        holdState.footerOverscroll = 0
+        holdState.footerPullFloor = .greatestFiniteMagnitude
+        holdState.footerTerminalFade = 0
         controller?._beginRefreshing = nil
         controller?._resetNoMoreData = nil
         controller?.isRefreshing = false
