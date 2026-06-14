@@ -11,6 +11,7 @@ MJRefresh-style pull-to-refresh and load-more for SwiftUI. Pure SwiftUI — no U
 
 - **Pull-to-refresh with real custom animations** — the header is just a SwiftUI view driven by phase + pull progress; plug in Lottie, frame sequences, anything
 - **Release-to-refresh on iOS 18+** — true MJRefresh semantics via `onScrollPhaseChange` (pull past the threshold, release to trigger, pull back to cancel); iOS 17 falls back to threshold-trigger with haptic feedback
+- **Finger-tracking with progressive fade** — header and pull-footer are content-anchored, so the loading view follows your finger natively and fades in as you pull (opacity tracks progress); the refresh end collapses smoothly
 - **Two load-more modes** — `.auto(prefetchDistance:)` fires near the bottom (infinite feed), `.pull` is a drag-out back-footer
 - **`noMoreData` terminal state** — returned from your closure, reset automatically on refresh or via the controller
 - **async/await API** — the animation collapses when your closure returns; impossible to forget `endRefreshing`
