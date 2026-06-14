@@ -1,3 +1,11 @@
+//
+//  ScrollViewModifierTests.swift
+//  IRefreshTests
+//
+//  Created by ibabyblue on 2026/06/11.
+//  Copyright © 2026 ibabyblue. All rights reserved.
+//
+
 import SwiftUI
 import Testing
 @testable import IRefresh

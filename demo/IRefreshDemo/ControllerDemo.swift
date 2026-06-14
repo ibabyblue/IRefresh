@@ -1,3 +1,11 @@
+//
+//  ControllerDemo.swift
+//  IRefreshDemo
+//
+//  Created by ibabyblue on 2026/06/11.
+//  Copyright © 2026 ibabyblue. All rights reserved.
+//
+
 import IRefresh
 import SwiftUI
 

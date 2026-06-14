@@ -1,4 +1,12 @@
 // swift-tools-version: 6.0
+//
+//  Package.swift
+//  IRefresh
+//
+//  Created by ibabyblue on 2026/06/11.
+//  Copyright © 2026 ibabyblue. All rights reserved.
+//
+
 import PackageDescription
 
 let package = Package(

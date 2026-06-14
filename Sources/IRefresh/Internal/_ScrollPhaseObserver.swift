@@ -1,3 +1,11 @@
+//
+//  _ScrollPhaseObserver.swift
+//  IRefresh
+//
+//  Created by ibabyblue on 2026/06/11.
+//  Copyright © 2026 ibabyblue. All rights reserved.
+//
+
 import SwiftUI
 
 /// True when the OS can tell us the finger left the screen (release-to-refresh

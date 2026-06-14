@@ -1,3 +1,11 @@
+//
+//  _OffsetProbe.swift
+//  IRefresh
+//
+//  Created by ibabyblue on 2026/06/11.
+//  Copyright © 2026 ibabyblue. All rights reserved.
+//
+
 import SwiftUI
 
 /// Frame of the scroll content (the outer VStack) in the ScrollView's named

@@ -1,3 +1,11 @@
+//
+//  _ScrollGeometryObserver.swift
+//  IRefresh
+//
+//  Created by ibabyblue on 2026/06/11.
+//  Copyright © 2026 ibabyblue. All rights reserved.
+//
+
 import SwiftUI
 
 /// Pure transform from scroll-geometry numbers to `_ScrollMetrics` —
