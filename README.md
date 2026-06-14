@@ -102,13 +102,15 @@ A header is any view built from an `IRefreshContext` — `phase` plus `progress`
     switch context.phase {
     case .refreshing, .finishing:
         LottieView(animation: .named("loading"))
-            .playing(loopMode: .loop)
+            .playing(loopMode: .loop)        // play only after release
     default:
         LottieView(animation: .named("loading"))
-            .currentProgress(min(context.progress, 1))
+            .currentProgress(0)              // static while pulling
     }
 }
 ```
+
+The control fades the whole header in as you pull (opacity tracks `progress`), so a custom view typically stays **static while pulling** and only animates once `.refreshing`. If you'd rather scrub a Lottie by pull distance instead of fading, drive `.currentProgress(min(context.progress, 1))` in the `default` branch — both are valid.
 
 Phases: `idle → pulling → willRefresh → refreshing → finishing → idle`. `.willRefresh` (dragging at/past the threshold, waiting for release) only occurs on iOS 18+ — treat it as optional. Footers additionally receive `.noMoreData`.
 
@@ -152,8 +154,9 @@ English and Simplified Chinese ship by default and follow the system language. O
 ## How It Works
 
 - Content lives in a plain `ScrollView`. On iOS 18+ scroll metrics come from `onScrollGeometryChange` (reliable during live gestures); on iOS 17 a zero-size GeometryReader probe is the fallback source. Metrics are quantized to 0.5pt and feed small state machines.
-- The header sits directly above the content, revealed by the native rubber-band — no offset hacks while dragging, fully finger-tracking.
+- The header sits directly above the content and the pull footer just below it — both are content-anchored, so they track the pull gesture natively and fade in as you drag (opacity follows `progress`).
 - While refreshing, an animated spacer "holds" the header visible; when your async closure returns, the header fades out together with a smooth collapse animation.
+- Two footer presentations (like MJRefresh): `.auto` is a persistent row at the list bottom (its "no more data" is visible once you scroll there); `.pull` is a back-footer below the content (pull up to reveal it; "no more data" stays hidden at rest and rubber-bands into view only on pull).
 - On iOS 18+, `onScrollPhaseChange` detects finger release for faithful MJRefresh semantics (and gates out non-interactive geometry transients). On iOS 17 that API doesn't exist, so crossing the threshold triggers immediately (with a haptic).
 
 ## License
